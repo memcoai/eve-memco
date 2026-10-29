@@ -1,0 +1,146 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+# A release must never be cancelled part-way: an npm version cannot be
+# re-published, so a half-finished run is not something to replace.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    name: Gate
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # The ancestry check below needs the history joining the tag to main.
+          fetch-depth: 0
+
+      - name: The tag names a valid version, and the one the package declares
+        id: version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          node --input-type=module - <<'JS' >> "$GITHUB_OUTPUT"
+          import { readFileSync } from 'node:fs'
+
+          // The expression published at semver.org. Capture groups: major,
+          // minor, patch, prerelease, build metadata.
+          const SEMVER =
+            /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
+
+          const tag = process.env.TAG
+          const raw = tag.replace(/^v/, '')
+          const match = SEMVER.exec(raw)
+          if (match === null) {
+            console.error(`tag ${tag} does not name a semantic version: ${JSON.stringify(raw)}`)
+            process.exit(1)
+          }
+          // Semver admits one spelling per version, so a string comparison is
+          // enough.
+          const declared = JSON.parse(readFileSync('package.json', 'utf8')).version
+          if (raw !== declared) {
+            console.error(`tag ${tag} claims version ${raw}, but package.json declares ${declared}`)
+            process.exit(1)
+          }
+          console.log(`version=${declared}`)
+          console.log(`prerelease=${match[4] !== undefined}`)
+          JS
+
+      # A tag pushed from a side branch would release code that never passed
+      # review, and nothing else here would notice.
+      - name: The tagged commit is contained in main
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD || {
+            echo "::error::$GITHUB_REF_NAME is not an ancestor of main; release from main only"
+            exit 1
+          }
+
+  ci:
+    name: Checks
+    needs: gate
+    uses: ./.github/workflows/ci.yaml
+
+  publish:
+    name: Publish to npm
+    needs: [gate, ci]
+    runs-on: ubuntu-latest
+    # Trusted publishing exchanges this job's OIDC identity for a short-lived
+    # npm token, issued only to the publisher configured on the package: this
+    # repository and this workflow file.
+    permissions:
+      id-token: write
+    # Give the environment a required reviewer and a tag push waits for a human
+    # before the irreversible upload.
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@memco/eve/v/${{ needs.gate.outputs.version }}
+    steps:
+      # Exactly the artefact the build job verified.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: dist
+      # Trusted publishing needs npm >=11.5.1, which Node 24 ships.
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - name: Publish
+        env:
+          PRERELEASE: ${{ needs.gate.outputs.prerelease }}
+        run: |
+          set -- dist/*.tgz
+          { [ "$#" -eq 1 ] && [ -f "$1" ]; } \
+            || { echo "::error::expected one tarball, found $#: $*"; exit 1; }
+          # Without --tag a prerelease would become what a plain install
+          # resolves to. --access public: a scoped package publishes restricted
+          # by default. `./` keeps npm from reading the path as a GitHub
+          # shorthand.
+          if [ "$PRERELEASE" = "true" ]; then dist_tag=next; else dist_tag=latest; fi
+          npm publish "./$1" --access public --tag "$dist_tag"
+
+  release:
+    name: Draft the GitHub release
+    needs: [gate, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: dist
+      # A draft: the generated notes are a starting point for someone to edit.
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.gate.outputs.version }}
+          PRERELEASE: ${{ needs.gate.outputs.prerelease }}
+        run: |
+          tarball="dist/memco-eve-$VERSION.tgz"
+          [ -f "$tarball" ] || { echo "::error::$tarball is not among the artefacts"; exit 1; }
+          # --verify-tag: without it, a tag deleted meanwhile makes gh create a
+          # new one at the default branch head.
+          if [ "$PRERELEASE" = "true" ]; then set -- --prerelease; else set --; fi
+          url=$(gh release create "$TAG" \
+            --draft \
+            --verify-tag \
+            --generate-notes \
+            --title "@memco/eve $VERSION" \
+            "$@" \
+            "$tarball")
+          echo "::notice::draft release ready to edit and publish: $url"

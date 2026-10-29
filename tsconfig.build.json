@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "declaration": true,
+    // src/ is not published, so maps pointing at it would point at nothing.
+    "sourceMap": false
+  },
+  "include": ["src/**/*.ts"]
+}

@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  # Branches only. A tag push belongs to the release pipeline, which calls this
+  # workflow itself; an unfiltered `push` would run every check twice.
+  push:
+    branches: ['**']
+  pull_request:
+  # The release pipeline calls this, so a release verifies exactly what a pull
+  # request does, from one definition.
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Prefixed: called from the release pipeline, `github.workflow` is the
+  # caller's name, and a group matching the caller's own would deadlock and
+  # cancel the release.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint, typecheck and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: make install
+      - run: make check
+
+  build:
+    name: Build and install
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: make install
+
+      # Chained rather than a `prepack` script: .npmrc sets
+      # `ignore-scripts=true`, so a lifecycle hook would be skipped in silence
+      # and `npm pack` would ship an empty dist/ behind a green build.
+      - name: Build, then pack
+        run: npm run build && npm pack
+
+      - name: Install the tarball into a clean project
+        run: |
+          # The -f test is not redundant: bash leaves an unmatched glob as its
+          # own literal text, so on zero tarballs `$#` is 1 and `$1` is `*.tgz`.
+          set -- *.tgz
+          { [ "$#" -eq 1 ] && [ -f "$1" ]; } \
+            || { echo "::error::expected one tarball, found $#: $*"; exit 1; }
+          mkdir -p /tmp/verify
+          cp "$1" /tmp/verify/package.tgz
+          npm --prefix /tmp/verify init -y > /dev/null
+          npm --prefix /tmp/verify pkg set type=module
+          # eve is a peer: a consumer installs it beside the provider.
+          npm --prefix /tmp/verify install --no-audit --no-fund \
+            /tmp/verify/package.tgz "eve@$(node -p "require('./package.json').devDependencies.eve")"
+
+      - name: The entry point loads
+        working-directory: /tmp/verify
+        run: |
+          node --input-type=module - <<'JS'
+          import { byTenant } from '@memco/eve'
+          if (typeof byTenant !== 'function') {
+            throw new Error('byTenant did not reach the tarball')
+          }
+          console.log('esm ok')
+          JS
+
+      # Types resolve through `exports` separately from the runtime entry, and
+      # a broken `types` path makes every annotation silently `any`. A
+      # deliberate error proves a consumer's own tsc sees the package as typed.
+      - name: A consumer sees the package as typed
+        working-directory: /tmp/verify
+        run: |
+          cat > tsconfig.json <<'JSON'
+          {
+            "compilerOptions": {
+              "module": "nodenext",
+              "moduleResolution": "nodenext",
+              "strict": true,
+              "skipLibCheck": true,
+              "noEmit": true
+            },
+            "include": ["consumer.mts"]
+          }
+          JSON
+          cat > consumer.mts <<'TS'
+          import { memco } from '@memco/eve'
+          export const wrong: number = memco
+          TS
+          # The pipe keeps tsc's intended failure from failing the step; the
+          # grep is the assertion.
+          "$GITHUB_WORKSPACE/node_modules/.bin/tsc" -p tsconfig.json 2>&1 | tee out.txt
+          grep -q "^consumer.mts.*is not assignable to type 'number'" out.txt \
+            || { echo "::error::the installed package is not seen as typed"; exit 1; }
+
+      # The release pipeline publishes this as-is; rebuilding there would ship
+      # an artefact none of the above ran against.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dist
+          path: '*.tgz'

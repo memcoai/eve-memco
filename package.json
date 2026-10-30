@@ -45,7 +45,7 @@
     "test": "npm run build:test && node --test --enable-source-maps 'build/tests/**/*.test.js'"
   },
   "peerDependencies": {
-    "eve": ">=0.84.1 <0.91.0"
+    "eve": ">=0.84.1 <1"
   },
   "devDependencies": {
     "@tktco/node-actionlint": "1.6.0",

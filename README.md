@@ -19,7 +19,7 @@ conversation transcripts.
 
 ## Requirements and installation
 
-You need Node.js 24 or later, an existing eve app using `eve >=0.84.1 <0.91.0`, and a memco account. If
+You need Node.js 24 or later, an existing eve app using `eve >=0.84.1 <1`, and a memco account. If
 you are starting a new app, follow [eve's first-agent tutorial](https://eve.dev/docs/tutorial/first-agent).
 
 Install the provider in your eve app:

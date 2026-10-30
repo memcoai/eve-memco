@@ -60,11 +60,14 @@ jobs:
             || { echo "::error::expected one tarball, found $#: $*"; exit 1; }
           mkdir -p /tmp/verify
           cp "$1" /tmp/verify/package.tgz
-          npm --prefix /tmp/verify init -y > /dev/null
-          npm --prefix /tmp/verify pkg set type=module
+          eve_version=$(node -p "require('./package.json').devDependencies.eve")
+          # From inside it: this repository's workspaces would otherwise make
+          # `npm --prefix` write nothing there.
+          cd /tmp/verify
+          npm init -y > /dev/null
+          npm pkg set type=module
           # eve is a peer: a consumer installs it beside the provider.
-          npm --prefix /tmp/verify install --no-audit --no-fund \
-            /tmp/verify/package.tgz "eve@$(node -p "require('./package.json').devDependencies.eve")"
+          npm install --no-audit --no-fund ./package.tgz "eve@$eve_version"
 
       - name: The entry point loads
         working-directory: /tmp/verify

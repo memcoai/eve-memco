@@ -3,6 +3,19 @@
   "version": "0.1.0",
   "description": "Memco Shared Memory as a memory provider for eve agents",
   "license": "MIT",
+  "homepage": "https://github.com/memcoai/eve-memco#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/memcoai/eve-memco.git"
+  },
+  "bugs": "https://github.com/memcoai/eve-memco/issues",
+  "keywords": [
+    "memco",
+    "eve",
+    "shared-memory",
+    "memory",
+    "agent"
+  ],
   "type": "module",
   "engines": {
     "node": ">=24"

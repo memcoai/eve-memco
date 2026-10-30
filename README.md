@@ -3,7 +3,7 @@
 <p>
   <a href="https://github.com/memcoai/eve-memco/actions/workflows/ci.yaml"><img alt="CI" src="https://github.com/memcoai/eve-memco/actions/workflows/ci.yaml/badge.svg?branch=main"></a>
   <img alt="Node version" src="https://img.shields.io/node/v/@memco/eve">
-  <a href="LICENSE"><img alt="Licence" src="https://img.shields.io/npm/l/@memco/eve"></a>
+  <a href="https://github.com/memcoai/eve-memco/blob/main/LICENSE"><img alt="Licence" src="https://img.shields.io/npm/l/@memco/eve"></a>
 </p>
 
 Shared memory for [eve](https://github.com/vercel/eve) agents. Make useful knowledge from one task
@@ -139,7 +139,7 @@ as another user in the same tenant. It should be available there. A user in a di
 not be able to retrieve that tenant's memory, including by its ID with `memco__get_memory`. Inspect
 tool results, not just the agent's answer; a search miss alone does not establish access isolation.
 
-Both setups are runnable agents in [`examples/`](examples).
+Both setups are runnable agents in [`examples/`](https://github.com/memcoai/eve-memco/tree/main/examples).
 
 ## Memory behaviour
 
@@ -264,4 +264,4 @@ GitHub environment named `system-test`.
 
 ## Licence
 
-[MIT](LICENSE)
+[MIT](https://github.com/memcoai/eve-memco/blob/main/LICENSE)

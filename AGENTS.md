@@ -14,10 +14,9 @@ onto them. The design is `plans/eve-memory-provider.md` in the SDK repository.
   Tests run on `node:test` with a hand-built eve context and a fake Memco client at the SDK
   boundary; no test dependencies beyond eve itself.
 - **Use the Makefile.** `make check` is what CI runs.
-- **The eve range is what the provider was validated on.** eve's minor releases can break us, so
-  the peer range's upper bound is the newest eve that `make validate` passed on, in both modes.
-  Supporting a newer eve is a release of this package. The dev and example versions are that newest
-  eve. A change that only touches our own test driver is no reason to hold the range back.
+- **Keep testing against current eve.** The peer range stays open below 1, so a new eve reaches
+  users without a release of this package. `make validate` is what catches a breaking eve: keep the
+  dev and example versions on the current eve, and when one breaks us, fix it and release.
 - **Never derive identity from the model.** Tenant and user come from `ctx.session.auth.current`;
   every read and write is partitioned by the locked scope.
 - **Derivations are data.** `src/derive.ts` names users and networks in Memco; changing it orphans

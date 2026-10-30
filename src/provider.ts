@@ -33,6 +33,7 @@ export type UserNameResolver = (
   principal: SessionAuthContext
 ) => string | null | undefined | Promise<string | null | undefined>
 
+
 /** What the provider sets beyond the Memco client's own options. */
 export interface MemcoProviderOptions extends MemcoOptions {
   /** The Memco memory domain the slot reads and writes. Defaults to `knowledge`. */

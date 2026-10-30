@@ -34,6 +34,11 @@ jobs:
     # belong to the test org: this job runs the code of the branch under test.
     environment: system-test
     timeout-minutes: 20
+    # One run per mode across every branch: they share the test org. GitHub keeps
+    # one run waiting per group, so a newer one replaces it.
+    concurrency:
+      group: system-test-${{ matrix.mode }}
+      cancel-in-progress: false
     strategy:
       # One mode failing says nothing about the other.
       fail-fast: false

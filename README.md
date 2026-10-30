@@ -245,7 +245,7 @@ make check     # lint, typecheck, test
 with real turns against a real model and memco. It checks that memories land, are used and stay
 within their tenant, and that a turn's key is ended. It needs Docker and a dedicated memco test
 organisation: each run writes synthetic facts. A multi-tenant run makes its own tenants and removes
-them at the end; shared-identity facts can only be removed by hand.
+them at the end; a shared-identity run reverts what it wrote.
 
 ```sh
 export ANTHROPIC_API_KEY=... MEMCO_API_TOKEN=... MEMCO_CLIENT_ID=... MEMCO_CLIENT_SECRET=...
@@ -255,7 +255,7 @@ make validate MODE=multi
 ```
 
 `VALIDATE_TURN_SECONDS` sets how long a turn may take, `VALIDATE_SAMPLES=0` skips the scenarios that
-only report rates, and `VALIDATE_KEEP=1` keeps a multi-tenant run's tenants, to look at them in the
+only report rates, and `VALIDATE_KEEP=1` keeps a run's tenants or memories, to look at them in the
 dashboard.
 
 `.github/workflows/system.yaml` runs this on every pull request from this repository, and the

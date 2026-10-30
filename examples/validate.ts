@@ -12,7 +12,12 @@ import { createInterface } from 'node:readline'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { promisify, parseEnv } from 'node:util'
 
-import { DEFAULT_HOST, Memco, type MemcoOptions } from '@memco/memcoai'
+import {
+  DEFAULT_HOST,
+  Memco,
+  RevertOutcome,
+  type MemcoOptions
+} from '@memco/memcoai'
 import { Client, type ClientSession } from 'eve/client'
 
 import { externalId, networkName } from '../src/derive.js'
@@ -248,11 +253,11 @@ async function startServer({ dir, eve, env }: Setup): Promise<Server> {
   }
   const onExit = () => child.kill('SIGTERM')
   process.once('exit', onExit)
-  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-    process.once(signal, () => {
-      void stop().finally(() => process.exit(130))
-    })
+  // Only while booting: from then on, validate() stops it and cleans up.
+  const onSignal = () => {
+    void stop().finally(() => process.exit(130))
   }
+  for (const signal of SIGNALS) process.once(signal, onSignal)
 
   const up = await until(
     async () => child.exitCode !== null || (await healthy()),
@@ -262,6 +267,7 @@ async function startServer({ dir, eve, env }: Setup): Promise<Server> {
     await stop()
     throw new Error(`the server did not start:\n${log.join('\n')}`)
   }
+  for (const signal of SIGNALS) process.off(signal, onSignal)
   return { audit, keys, stop }
 }
 
@@ -292,6 +298,12 @@ async function settle(
           const input = event.data.input as { feedback?: Rating[] }
           ratings.push(...(input.feedback ?? []))
         }
+      }
+      if (event.type === 'call.settled') {
+        const write = /accepted as operation (\S+?)\\n/.exec(
+          JSON.stringify(event.data.output ?? '')
+        )
+        if (write?.[1] !== undefined) writes.push(write[1])
       }
       if (event.type === 'call.settled' && event.data.outcome !== 'completed') {
         const name = names.get(event.data.callId) ?? event.data.callId
@@ -427,6 +439,11 @@ const QUIET_MS = 5_000
 const KEY_MS = 30_000
 
 const SAVE = new Set(['memco__create_memory', 'memco__enrich_memory'])
+const SIGNALS = ['SIGINT', 'SIGTERM'] as const
+/** How long a write gets to finish ingesting before it can be reverted. */
+const REVERT_MS = 60_000
+/** Every memory write of this run, by the operation id that undoes it. */
+const writes: string[] = []
 
 const nonce = randomBytes(5).toString('hex')
 // Shared with the query, so it finds this run's fact and no earlier run's, but
@@ -935,11 +952,57 @@ async function removeTenants(memco: Memco): Promise<void> {
   )
 }
 
+/**
+ * Undo this run's writes. There is no way to list a token's memories, so this
+ * is what stops single-user facts piling up: a near-duplicate of an earlier
+ * run's fact can be merged into it, and a search then misses this run's.
+ */
+async function revertWrites(memco: Memco): Promise<void> {
+  const left = await Promise.all(
+    writes.map(async id => {
+      let outcome = RevertOutcome.NOT_FOUND
+      try {
+        await until(async () => {
+          ;({ outcome } = await memco.memory.revertMemory(id))
+          return outcome !== RevertOutcome.NOT_FOUND
+        }, REVERT_MS)
+      } catch (error) {
+        return `${id}: ${String(error)}`
+      }
+      const removed = ![
+        RevertOutcome.NOT_FOUND,
+        RevertOutcome.EXPIRED,
+        RevertOutcome.REFUSED
+      ].includes(outcome)
+      return removed ? null : `${id}: ${RevertOutcome[outcome]}`
+    })
+  )
+  const kept = left.filter(entry => entry !== null)
+  console.log(
+    `reverted ${writes.length - kept.length} of ${writes.length} writes`
+  )
+  for (const entry of kept) {
+    console.warn(`WARNING: could not revert ${entry}`)
+  }
+}
+
 async function validate(mode: Mode): Promise<void> {
   const { status } = await eveInfo(setup)
   const server = await startServer(setup)
   const memco = new Memco(setup.memco)
   const client = mode === 'single' ? anonymous : alice.client
+
+  // Once, and on every way out: a failed scenario, an error, or an interrupted
+  // run, which is how a cancelled CI job ends.
+  let finished: Promise<void> | undefined
+  const finish = (): Promise<void> =>
+    (finished ??= cleanUp(server, memco, mode))
+  for (const signal of SIGNALS) {
+    process.once(signal, () => {
+      void finish().finally(() => process.exit(130))
+    })
+  }
+
   try {
     await wiring(server, client, status)
     if (mode === 'single') await singleUser(memco, client)
@@ -954,12 +1017,23 @@ async function validate(mode: Mode): Promise<void> {
       ])
     }
   } finally {
-    await server.stop()
-    if (mode === 'multi' && process.env['VALIDATE_KEEP'] !== '1') {
-      await removeTenants(memco)
-    }
-    await memco.close()
+    await finish()
   }
+}
+
+/** Stop the server and remove what the run wrote, whatever else goes wrong. */
+async function cleanUp(
+  server: Server,
+  memco: Memco,
+  mode: Mode
+): Promise<void> {
+  await server.stop().catch((error: unknown) => {
+    console.warn(`WARNING: could not stop the server: ${String(error)}`)
+  })
+  if (process.env['VALIDATE_KEEP'] !== '1') {
+    await (mode === 'multi' ? removeTenants(memco) : revertWrites(memco))
+  }
+  await memco.close()
 }
 
 console.log(`mode ${mode}, writing to Memco at ${setup.host}`)

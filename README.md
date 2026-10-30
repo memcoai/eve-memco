@@ -28,16 +28,6 @@ Install the provider in your eve app:
 npm i @memco/eve
 ```
 
-Keep the memco SDK out of eve's bundle, in `agent/agent.ts`, or the server fails to start: the SDK
-reads its own `package.json` when it loads.
-
-```ts
-export default defineAgent({
-  // ...
-  build: { externalDependencies: ['@memco/memcoai'] }
-})
-```
-
 Create an API token in the [memco dashboard](https://spark.memco.ai/) for the shared-identity
 quickstart below. For a multi-tenant app, use an API client with network and user management
 permissions and the admin grant to act for your users; see the

@@ -8,7 +8,12 @@ import { defineMemory } from 'eve/memory'
 export default defineMemory({
   description:
     "Your organization's shared memory: search it before working something out.",
-  provider: memco({ domain: 'knowledge' }),
+  provider: memco({
+    domain: 'knowledge',
+    // A label in Memco, so this is what people read there. Your own sign-in
+    // decides where a real name comes from, such as a verified token claim.
+    userName: principal => principal.principalId
+  }),
   // Unique within your Memco organization, and set before launch: changing it
   // starts every tenant from empty.
   namespace: 'acme-support-agent',

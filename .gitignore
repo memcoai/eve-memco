@@ -4,3 +4,5 @@ build/
 *.tgz
 *.tsbuildinfo
 .idea/
+.eve/
+examples/results/

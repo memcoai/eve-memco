@@ -16,6 +16,7 @@ import {
   createProvider,
   memco,
   type SessionState,
+  type UserNameResolver,
   type StoredSessions
 } from '../src/provider.js'
 import {
@@ -55,6 +56,7 @@ interface Turn {
   tenant?: string
   principal?: SessionAuthContext
   scopeValue?: string | readonly string[]
+  sequence?: number
 }
 
 type Context = MemoryTurnStartedContext &
@@ -67,7 +69,8 @@ function context({
   turnId = 'turn-1',
   tenant = 'tenant-a',
   principal = user(),
-  scopeValue = [TENANT_SCOPE, tenant]
+  scopeValue = [TENANT_SCOPE, tenant],
+  sequence = 1
 }: Turn = {}): Context {
   return {
     abortSignal: new AbortController().signal,
@@ -85,22 +88,28 @@ function context({
         value: scopeValue
       }
     },
-    turn: { id: turnId, input: [], sequence: 1 }
+    turn: { id: turnId, input: [], sequence }
   } as unknown as Context
 }
 
 function setup(
   kind: 'token' | 'apiClient',
   state = store(),
-  domain = 'knowledge'
+  domain = 'knowledge',
+  userName?: UserNameResolver,
+  nudgeEvery = 1
 ) {
   const client = new FakeMemco(kind)
   const logs: string[] = []
+  let time = 0
   const provider = createProvider({
     client: () => client,
     state,
     domain,
     keyTtlMinutes: 10,
+    nudgeEvery,
+    ...(userName === undefined ? {} : { userName }),
+    now: () => time,
     log: message => logs.push(message)
   })
   // A token's slot is scoped per principal, as with eve's byPrincipal.
@@ -110,7 +119,10 @@ function setup(
   const tools = (given?: Turn) => provider.tools(turn(given))
   const capture = (given?: Turn) =>
     provider.capture['turn.completed'](turn(given))
-  return { client, state, logs, provider, recall, tools, capture }
+  const advance = (minutes: number) => {
+    time += minutes * 60_000
+  }
+  return { client, state, logs, provider, recall, tools, capture, advance }
 }
 
 const ADMIN = [
@@ -206,6 +218,39 @@ test('the first turn recalls the briefing and the nudge, a later one only the nu
   assert.deepEqual(later?.messages, [first?.messages[1]])
 })
 
+test('a session is nudged when it starts and then every nudgeEvery turns', async () => {
+  const { recall, capture } = setup(
+    'apiClient',
+    store(),
+    'knowledge',
+    undefined,
+    3
+  )
+  const nudged: boolean[] = []
+  for (const sequence of [1, 2, 3, 4, 5, 6]) {
+    const turn = { sequence, turnId: `turn-${sequence}` }
+    const result = await recall(turn)
+    nudged.push(
+      result?.messages.some(message => message.id === undefined) ?? false
+    )
+    await capture(turn)
+  }
+  assert.deepEqual(nudged, [true, false, true, false, false, true])
+})
+
+test('nudgeEvery must be a whole number from 1 up', () => {
+  for (const nudgeEvery of [0, -1, 1.5]) {
+    assert.throws(() => memco({ nudgeEvery }), MemcoConfigError)
+  }
+})
+
+test('the nudge asks to save lessons, not general knowledge', async () => {
+  const { recall } = setup('apiClient')
+  const nudge = (await recall())?.messages.at(-1)?.content ?? ''
+  assert.match(nudge, /memco__create_memory/)
+  assert.match(nudge, /not general knowledge/)
+})
+
 test('a session whose domain is not described recalls only the nudge, and says so', async () => {
   const { client, logs, recall } = setup('token')
   client.domain = null
@@ -289,6 +334,51 @@ test("on a fresh process, tools for one principal use that principal's session a
   ])
 })
 
+// --- user names -------------------------------------------------------------
+
+const named = (name: string | null | undefined) =>
+  setup('apiClient', store(), 'knowledge', () => name)
+
+test('a new user takes the name the resolver gives', async () => {
+  const { client, recall } = named('Ada Lovelace')
+  await recall()
+  const id = externalId('app', 'tenant-a', user())
+  assert.deepEqual(client.calls[0]?.args, [
+    id,
+    { roles: ['reader', 'creator'], name: 'Ada Lovelace' }
+  ])
+  assert.deepEqual(client.methods(), [...ADMIN, 'startSession'])
+})
+
+test('the resolver is handed the principal of the turn', async () => {
+  const seen: string[] = []
+  const { recall } = setup('apiClient', store(), 'knowledge', principal => {
+    seen.push(principal.principalId)
+    return 'name'
+  })
+  await recall({ principal: user('user-2') })
+  assert.deepEqual(seen, ['user-2'])
+})
+
+test('a resolver naming nobody leaves the external id as the name', async () => {
+  for (const name of [null, undefined, '', '   ']) {
+    const { client, recall } = named(name)
+    await recall()
+    const id = externalId('app', 'tenant-a', user())
+    assert.equal((client.calls[0]?.args[1] as { name: string }).name, id)
+  }
+})
+
+test('a token never asks for a name', async () => {
+  let asked = false
+  const { recall } = setup('token', store(), 'knowledge', () => {
+    asked = true
+    return 'name'
+  })
+  await recall()
+  assert.equal(asked, false)
+})
+
 // --- the turn's session -----------------------------------------------------
 
 test('tools are offered under bare keys, describing the slot-qualified names', async () => {
@@ -302,6 +392,20 @@ test('tools are offered under bare keys, describing the slot-qualified names', a
     {} as never
   )
   assert.equal(ran, 'search ran as token: {"query":"x"}')
+})
+
+test('every tool is built with defineTool, as eve requires of a provider', async () => {
+  const { recall, tools } = setup('token')
+  await recall()
+  const offered = await tools()
+  for (const tool of Object.values(offered ?? {})) {
+    assert.equal(
+      (tool as unknown as Record<symbol, unknown>)[
+        Symbol.for('eve:tool-brand')
+      ],
+      true
+    )
+  }
 })
 
 test('recall and tools in one turn share one session', async () => {
@@ -412,6 +516,104 @@ test('a turn that failed before completing leaves no session for the next turn',
   assert.equal(client.sessions[0]?.closed, true)
   assert.equal(client.methods().at(-1), 'resumeSession')
   assert.equal(next?.messages.length, 1)
+})
+
+test('recall adopts a session tools opened, with no second key and the briefing kept', async () => {
+  const { client, tools, recall } = setup('apiClient')
+  await tools()
+  const result = await recall()
+  assert.equal(client.sessions.length, 1)
+  assert.equal(client.sessions[0]?.closed, false)
+  assert.equal(result?.messages[0]?.id, 'memco-briefing')
+})
+
+test('a session recall adopted belongs to that turn, so a later turn closes it', async () => {
+  const { client, tools, recall } = setup('apiClient')
+  await tools()
+  await recall({ turnId: 'turn-1' })
+  await recall({ turnId: 'turn-2' })
+  assert.equal(client.sessions.length, 2)
+  assert.equal(client.sessions[0]?.closed, true)
+})
+
+test('a session tools failed to open is forgotten after recall shared the failure', async () => {
+  const { client, tools, recall } = setup('token')
+  client.failures['startSession'] = [unavailable()]
+  const [offered, recalled] = await Promise.all([tools(), recall()])
+  assert.equal(offered, null)
+  assert.equal(recalled, null)
+  const result = await recall()
+  assert.equal(result?.messages.length, 2)
+})
+
+test('a session older than the key lifetime is closed and dropped by a turn of another eve session', async () => {
+  const { client, recall, tools, advance } = setup('apiClient')
+  await recall({ eveSession: 'eve-1' })
+  advance(11)
+  await recall({ eveSession: 'eve-2' })
+  assert.equal(client.sessions[0]?.closed, true)
+  assert.equal(client.sessions[1]?.closed, false)
+  // Dropped: a held entry would be served here, and no session opened.
+  await tools({ eveSession: 'eve-1' })
+  assert.equal(client.sessions.length, 3)
+})
+
+test('a session within the key lifetime stays open across other eve sessions', async () => {
+  const { client, recall, advance } = setup('apiClient')
+  await recall({ eveSession: 'eve-1' })
+  advance(10)
+  await recall({ eveSession: 'eve-2' })
+  assert.equal(client.sessions[0]?.closed, false)
+})
+
+test('a session still in use outlives the key lifetime, as its key renews', async () => {
+  const { client, recall, tools, advance } = setup('apiClient')
+  await recall({ eveSession: 'eve-1' })
+  advance(8)
+  await tools({ eveSession: 'eve-1' })
+  advance(8)
+  await recall({ eveSession: 'eve-2' })
+  assert.equal(client.sessions[0]?.closed, false)
+  await tools({ eveSession: 'eve-1' })
+  assert.equal(client.sessions.length, 2)
+})
+
+test('a failure closing an expired session is logged, and the new turn goes on', async () => {
+  const { client, logs, recall, advance } = setup('apiClient')
+  await recall({ eveSession: 'eve-1' })
+  const stale = client.sessions[0]
+  assert.ok(stale)
+  stale.close = async () => {
+    throw new Error('could not end the key')
+  }
+  advance(11)
+  const result = await recall({ eveSession: 'eve-2' })
+  assert.equal(result?.messages.length, 1)
+  assert.match(logs.join('\n'), /could not end the key/)
+})
+
+test('an expired session is reopened for the turn asking, not served', async () => {
+  const { client, tools, advance } = setup('apiClient')
+  await tools()
+  advance(11)
+  await tools()
+  assert.equal(client.sessions[0]?.closed, true)
+  assert.equal(client.sessions.length, 2)
+})
+
+test('a failure closing the expired session of the turn asking is logged, and it reopens', async () => {
+  const { client, logs, recall, advance } = setup('apiClient')
+  await recall({ turnId: 'turn-1' })
+  const stale = client.sessions[0]
+  assert.ok(stale)
+  stale.close = async () => {
+    throw new Error('could not end the key')
+  }
+  advance(11)
+  const result = await recall({ turnId: 'turn-2' })
+  assert.equal(result?.messages.length, 1)
+  assert.equal(client.sessions.length, 2)
+  assert.match(logs.join('\n'), /could not end the key/)
 })
 
 test('a first turn that cannot open a session provisions once, not twice', async () => {

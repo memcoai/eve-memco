@@ -13,13 +13,23 @@ conversation transcripts.
 
 ## Requirements and installation
 
-You need Node.js 24 or later, an existing eve app using `eve >=0.84.1 <1`, and a memco account. If
+You need Node.js 24 or later, an existing eve app using `eve >=0.84.1 <0.91.0`, and a memco account. If
 you are starting a new app, follow [eve's first-agent tutorial](https://eve.dev/docs/tutorial/first-agent).
 
 Install the provider in your eve app:
 
 ```sh
 npm i @memco/eve
+```
+
+Keep the memco SDK out of eve's bundle, in `agent/agent.ts`, or the server fails to start: the SDK
+reads its own `package.json` when it loads.
+
+```ts
+export default defineAgent({
+  // ...
+  build: { externalDependencies: ['@memco/memcoai'] }
+})
 ```
 
 Create an API token in the [memco dashboard](https://spark.memco.ai/) for the shared-identity
@@ -76,9 +86,9 @@ npx eve dev --tools full
 2. Enter `/reset` in eve's terminal UI to start a fresh session, then ask: "Search memco for the
    sandbox support demo's escalation code." Confirm that `memco__search` returns the saved fact.
    An answer from the model alone is not evidence that memory worked.
-3. After using a real memory on a task, ask the agent to report whether it helped through
-   `memco__share_feedback`. That feedback is part of the learning loop, alongside creating and
-   enriching memories.
+3. After using a real memory on a task, tell the agent whether it worked, and ask it to report
+   that through `memco__share_feedback`. That feedback is part of the learning loop, alongside
+   creating and enriching memories.
 
 The fresh session checks persistence beyond conversation history. See
 [eve's terminal UI guide](https://eve.dev/docs/guides/dev-tui) for tool display and logs. If tools
@@ -116,6 +126,9 @@ export default defineMemory({
 })
 ```
 
+To show readable names in memco, add `userName: principal => ...` to `memco()`. See
+[Options](#options).
+
 Your authentication integration must supply the verified `tenantId` attribute; adapt the resolver
 to your sign-in system. `byTenant` turns memory off, and eve calls no provider, for a caller that is
 not a signed-in user or whose tenant the resolver cannot name. That includes eve's local development
@@ -130,7 +143,7 @@ as another user in the same tenant. It should be available there. A user in a di
 not be able to retrieve that tenant's memory, including by its ID with `memco__get_memory`. Inspect
 tool results, not just the agent's answer; a search miss alone does not establish access isolation.
 
-Both slot definitions are in [`examples/`](examples/).
+Both setups are runnable agents in [`examples/`](examples/).
 
 ## Memory behaviour
 
@@ -139,14 +152,17 @@ The provider adds guidance and tools to the agent's normal turn lifecycle:
 - On the first turn of a memco session, a briefing supplies the domain's guidance (when to search,
   what to save, which tags to use) and the session's instructions. It is recalled once, under the id
   `memco-briefing`, and stays in context.
-- On every turn, a nudge beside the turn's input asks the agent to search memory before working.
+- When a session starts and every `nudgeEvery` turns after, a nudge beside the turn's input asks the
+  agent to search memory before working and to save lessons the team will need again. Each copy
+  stays in context for the rest of the session.
 - The slot exposes `memco__search`, `memco__get_memory`, `memco__create_memory`,
   `memco__enrich_memory`, `memco__share_feedback` and `memco__revert_memory`, as the credential's
   role allows. The `memco__` prefix comes from the slot's file name; tool descriptions and results
   use the same names.
 
 The agent decides when to call the tools. Searching is encouraged, not enforced, and writes happen
-only through tool calls. Tool inputs, including search queries and memory content, are sent to
+only through tool calls, so nothing is saved after a turn or when a session ends; eve gives a
+provider no way to act at either point. Tool inputs, including search queries and memory content, are sent to
 memco; the provider does not automatically upload the conversation transcript. Set your agent's
 instructions to exclude secrets and other content that should not become shared memory.
 
@@ -155,10 +171,16 @@ instructions to exclude secrets and other content that should not become shared 
 `memco(options)` takes the memco client's own options (`host`, `timeout`, `token`, `clientId`,
 `clientSecret`, ...), each falling back to the environment as the client does, and:
 
-| Option          | Default     | Meaning                                                                      |
-| --------------- | ----------- | ---------------------------------------------------------------------------- |
-| `domain`        | `knowledge` | The memco memory domain the slot reads and writes                            |
-| `keyTtlMinutes` | `10`        | Lifetime, in whole minutes, of the key a multi-tenant turn uses for its user |
+| Option          | Default     | Meaning                                                                       |
+| --------------- | ----------- | ----------------------------------------------------------------------------- |
+| `domain`        | `knowledge` | The memco memory domain the slot reads and writes                             |
+| `keyTtlMinutes` | `10`        | Lifetime, in whole minutes, of the key a multi-tenant turn uses for its user  |
+| `userName`      | none        | Names a multi-tenant user when memco first creates them, from their principal |
+| `nudgeEvery`    | `5`         | Turns between nudges, after the one a session starts with                     |
+
+`userName` is a label: identity stays the external ID, which holds no personal data, so a name may
+be the first thing that does. An existing user keeps their name. Take it from your verified sign-in,
+never from the model.
 
 See the [SDK configuration reference](https://docs.memco.ai/sdk/#configuration) for client
 settings and environment variables.
@@ -193,7 +215,8 @@ or closing its session also propagate; the setup fallback does not cover every c
 ### API calls and rate limits
 
 A multi-tenant turn acts as the tenant's user with a key minted for the turn and ended when it
-completes. eve keeps the provider's state per conversation, so a user's first turn in each
+completes. eve does not report a failed or cancelled turn to the provider, so that key ends with the
+next turn in the same process, or expires. eve keeps the provider's state per conversation, so a user's first turn in each
 conversation provisions again: creating a user or network that already exists costs a second call
 to find it, and adding a member already in the network changes nothing.
 
@@ -219,6 +242,29 @@ From a checkout of this repository, using Node.js 24 or later:
 make install   # npm ci
 make check     # lint, typecheck, test
 ```
+
+### Validation
+
+`examples/` holds a shared-identity and a multi-tenant agent, and `examples/validate.ts` drives them
+with real turns against a real model and memco. It checks that memories land, are used and stay
+within their tenant, and that a turn's key is ended. It needs Docker and a dedicated memco test
+organisation: each run writes synthetic facts. A multi-tenant run makes its own tenants and removes
+them at the end; shared-identity facts can only be removed by hand.
+
+```sh
+export ANTHROPIC_API_KEY=... MEMCO_API_TOKEN=... MEMCO_CLIENT_ID=... MEMCO_CLIENT_SECRET=...
+make examples                  # after any change to src/
+make validate MODE=single
+make validate MODE=multi
+```
+
+`VALIDATE_TURN_SECONDS` sets how long a turn may take, `VALIDATE_SAMPLES=0` skips the scenarios that
+only report rates, and `VALIDATE_KEEP=1` keeps a multi-tenant run's tenants, to look at them in the
+dashboard.
+
+`.github/workflows/system.yaml` runs this on every pull request from this repository, and the
+release pipeline requires it before publishing. It reads the same four variables as secrets of a
+GitHub environment named `system-test`.
 
 ## Licence
 

@@ -1,0 +1,9 @@
+{
+  "name": "memco-eve-example-single-user",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@memco/eve": "file:../..",
+    "eve": "0.90.0"
+  }
+}

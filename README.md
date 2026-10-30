@@ -13,14 +13,10 @@ conversation transcripts.
 
 ## Requirements and installation
 
-> [!NOTE]
-> Pre-release: `@memco/eve` is not yet published to the public npm registry. The install command
-> below applies once the package is published.
-
 You need Node.js 24 or later, an existing eve app using `eve >=0.84.1 <1`, and a memco account. If
 you are starting a new app, follow [eve's first-agent tutorial](https://eve.dev/docs/tutorial/first-agent).
 
-Once published, install the provider in your eve app:
+Install the provider in your eve app:
 
 ```sh
 npm i @memco/eve

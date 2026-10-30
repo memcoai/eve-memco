@@ -3,7 +3,7 @@
 <p>
   <a href="https://github.com/memcoai/eve-memco/actions/workflows/ci.yaml"><img alt="CI" src="https://github.com/memcoai/eve-memco/actions/workflows/ci.yaml/badge.svg?branch=main"></a>
   <img alt="Node version" src="https://img.shields.io/node/v/@memco/eve">
-  <a href="https://github.com/memcoai/eve-memco/blob/main/LICENSE"><img alt="Licence" src="https://img.shields.io/npm/l/@memco/eve"></a>
+  <a href="https://github.com/memcoai/eve-memco/blob/main/LICENSE"><img alt="Licence" src="https://img.shields.io/github/license/memcoai/eve-memco"></a>
 </p>
 
 Shared memory for [eve](https://github.com/vercel/eve) agents. Make useful knowledge from one task

@@ -19,24 +19,29 @@
     "LICENSE",
     "README.md"
   ],
+  "workspaces": [
+    "examples/single-user",
+    "examples/multi-tenant"
+  ],
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "prettier --check .",
+    "lint": "prettier --check . && node-actionlint '.github/workflows/*.yaml'",
     "format": "prettier --write .",
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "build:test": "rm -rf build && tsc -p tsconfig.json",
     "test": "npm run build:test && node --test --enable-source-maps 'build/tests/**/*.test.js'"
   },
   "peerDependencies": {
-    "eve": ">=0.84.1 <1"
+    "eve": ">=0.84.1 <0.91.0"
   },
   "devDependencies": {
+    "@tktco/node-actionlint": "1.6.0",
     "@types/node": "24.19.2",
-    "eve": "0.84.1",
+    "eve": "0.90.0",
     "prettier": "3.9.6",
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@memco/memcoai": "^0.3.0"
+    "@memco/memcoai": "^0.3.1"
   }
 }

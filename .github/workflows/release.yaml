@@ -72,9 +72,16 @@ jobs:
     needs: gate
     uses: ./.github/workflows/ci.yaml
 
+  system:
+    name: System test
+    needs: gate
+    uses: ./.github/workflows/system.yaml
+    # Its environment's secrets, which a called workflow is not given by default.
+    secrets: inherit
+
   publish:
     name: Publish to npm
-    needs: [gate, ci]
+    needs: [gate, ci, system]
     runs-on: ubuntu-latest
     # Trusted publishing exchanges this job's OIDC identity for a short-lived
     # npm token, issued only to the publisher configured on the package: this

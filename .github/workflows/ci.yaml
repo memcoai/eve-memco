@@ -22,13 +22,19 @@ concurrency:
 
 jobs:
   check:
-    name: Lint, typecheck and test
+    name: Lint, typecheck and test, Node ${{ matrix.node }}
     runs-on: ubuntu-latest
+    strategy:
+      # One version failing says nothing about the other.
+      fail-fast: false
+      matrix:
+        # From eve's own floor, Node 24: it does not run on 22.
+        node: ['24', '26']
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version-file: .nvmrc
+          node-version: ${{ matrix.node }}
           cache: npm
       - run: make install
       - run: make check
@@ -60,11 +66,14 @@ jobs:
             || { echo "::error::expected one tarball, found $#: $*"; exit 1; }
           mkdir -p /tmp/verify
           cp "$1" /tmp/verify/package.tgz
-          npm --prefix /tmp/verify init -y > /dev/null
-          npm --prefix /tmp/verify pkg set type=module
+          eve_version=$(node -p "require('./package.json').devDependencies.eve")
+          # From inside it: this repository's workspaces would otherwise make
+          # `npm --prefix` write nothing there.
+          cd /tmp/verify
+          npm init -y > /dev/null
+          npm pkg set type=module
           # eve is a peer: a consumer installs it beside the provider.
-          npm --prefix /tmp/verify install --no-audit --no-fund \
-            /tmp/verify/package.tgz "eve@$(node -p "require('./package.json').devDependencies.eve")"
+          npm install --no-audit --no-fund ./package.tgz "eve@$eve_version"
 
       - name: The entry point loads
         working-directory: /tmp/verify

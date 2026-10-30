@@ -6,7 +6,7 @@
 NPM ?= npm
 RUN := $(NPM) run --silent
 
-.PHONY: help install lint format typecheck test check build clean
+.PHONY: help install lint format typecheck test check build examples validate clean
 
 help:  ## Show this help
 	@grep -hE '^[a-z][a-z-]*:.*?## ' $(MAKEFILE_LIST) \
@@ -15,7 +15,7 @@ help:  ## Show this help
 install:  ## Install the development toolchain from the lockfile
 	$(NPM) ci
 
-lint:  ## Check formatting
+lint:  ## Check formatting and the GitHub workflows
 	$(RUN) lint
 
 format:  ## Apply formatting
@@ -32,6 +32,12 @@ check: lint typecheck test  ## Everything CI runs
 build:  ## Build the package and the npm tarball
 	$(RUN) build
 	$(NPM) pack
+
+examples:  ## Build the package the examples run
+	$(RUN) build
+
+validate:  ## Run the examples' validation, MODE selecting which
+	$(RUN) build:test && node --enable-source-maps build/examples/validate.js $(MODE)
 
 clean:  ## Remove build artefacts
 	rm -rf dist build *.tgz *.tsbuildinfo

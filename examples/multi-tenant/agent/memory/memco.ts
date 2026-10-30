@@ -1,5 +1,5 @@
 // Multi-tenant mode: MEMCO_CLIENT_ID and MEMCO_CLIENT_SECRET are set. Each
-// tenant gets its own Memco network, and each of its users an external user
+// tenant gets its own memco network, and each of its users an external user
 // placed in it, so the users of one tenant share that tenant's memory and
 // never another's.
 import { byTenant, memco } from '@memco/eve'
@@ -10,11 +10,11 @@ export default defineMemory({
     "Your organization's shared memory: search it before working something out.",
   provider: memco({
     domain: 'knowledge',
-    // A label in Memco, so this is what people read there. Your own sign-in
+    // A label in memco, so this is what people read there. Your own sign-in
     // decides where a real name comes from, such as a verified token claim.
     userName: principal => principal.principalId
   }),
-  // Unique within your Memco organization, and set before launch: changing it
+  // Unique within your memco organisation, and set before launch: changing it
   // starts every tenant from empty.
   namespace: 'acme-support-agent',
   // The tenant comes from the verified sign-in, never from the model. A caller

@@ -355,13 +355,9 @@ async function streamEnded(session: ClientSession): Promise<boolean> {
   return false
 }
 
-/** The slots the running server reports; `client.info()` pins a version. */
+/** The slots the running server reports. */
 async function memorySlots(client: Client): Promise<string[]> {
-  const response = await client.fetch('/eve/v1/info')
-  if (!response.ok) throw new Error(`/eve/v1/info: ${response.status}`)
-  const { memories } = (await response.json()) as {
-    memories: { slot: string }[]
-  }
+  const { memories } = await client.info()
   return memories.map(memory => memory.slot)
 }
 
@@ -430,7 +426,7 @@ const QUIET_MS = 5_000
 /** How long an ended key gets to leave the listing. */
 const KEY_MS = 30_000
 
-const SAVE = ['memco__create_memory', 'memco__enrich_memory']
+const SAVE = new Set(['memco__create_memory', 'memco__enrich_memory'])
 
 const nonce = randomBytes(5).toString('hex')
 // Shared with the query, so it finds this run's fact and no earlier run's, but
@@ -538,7 +534,8 @@ async function scenario(
     await body(s).catch((error: unknown) => {
       s.failures.push(error instanceof Error ? error.message : String(error))
     })
-    status = reportOnly ? 'REPORT' : s.failures.length > 0 ? 'FAIL' : 'PASS'
+    status = s.failures.length > 0 ? 'FAIL' : 'PASS'
+    if (reportOnly) status = 'REPORT'
   }
   results.push({ id, status, failures: s.failures, values: s.values })
   const values = Object.entries(s.values).map(([k, v]) => `${k}=${brief(v)}`)
@@ -585,7 +582,7 @@ async function teach(s: Scenario, memco: Memco, client: Client, as?: string) {
   const { calls, failedCalls } = await firstTurn(client, TEACH)
   s.note({ calls, failedCalls })
   // Enriching counts: a fact from an earlier run is a fair place for this one.
-  const saved = calls.some(call => SAVE.includes(call))
+  const saved = calls.some(call => SAVE.has(call))
   s.check(saved, 'the model did not save')
   if (!saved) return
   const { found, seconds } = await awaitMemory(memco, QUERY, nonce, as)
@@ -781,7 +778,7 @@ function reflection(client: Client) {
           )
         )
         const count = turns.filter(turn =>
-          turn?.calls.some(call => SAVE.includes(call))
+          turn?.calls.some(call => SAVE.has(call))
         ).length
         return `${count}/${prompts.length}`
       }
@@ -843,7 +840,7 @@ function sessionReflection(client: Client) {
             turns.push(await nextTurn(first.session, message))
           }
           const at = turns.findIndex(turn =>
-            turn.calls.some(call => SAVE.includes(call))
+            turn.calls.some(call => SAVE.has(call))
           )
           return at === -1 ? null : at + 1
         })
@@ -919,24 +916,23 @@ const identifiers =
 
 /** Remove this run's users, then the networks, which refuse to go with them. */
 async function removeTenants(memco: Memco): Promise<void> {
-  const removals = [
-    ...[alice, bob, carol].map(({ externalId: id, name }) => ({
-      what: `user ${name}`,
-      remove: () => memco.users.delete(id)
-    })),
-    ...[acmeNetwork, globexNetwork].map(name => ({
-      what: `network ${name}`,
-      remove: async () => {
-        const { networks } = await memco.networks.list({ name })
-        for (const { id } of networks) await memco.networks.delete(id)
-      }
-    }))
-  ]
-  for (const { what, remove } of removals) {
-    await remove().catch((error: unknown) => {
+  const attempt = (what: string, remove: () => Promise<unknown>) =>
+    remove().catch((error: unknown) => {
       console.warn(`WARNING: could not remove ${what}: ${String(error)}`)
     })
-  }
+  await Promise.all(
+    [alice, bob, carol].map(({ externalId: id, name }) =>
+      attempt(`user ${name}`, () => memco.users.delete(id))
+    )
+  )
+  await Promise.all(
+    [acmeNetwork, globexNetwork].map(name =>
+      attempt(`network ${name}`, async () => {
+        const { networks } = await memco.networks.list({ name })
+        await Promise.all(networks.map(({ id }) => memco.networks.delete(id)))
+      })
+    )
+  )
 }
 
 async function validate(mode: Mode): Promise<void> {

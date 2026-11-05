@@ -1,6 +1,6 @@
 {
   "name": "@memco/eve",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Memco Shared Memory as a memory provider for eve agents",
   "license": "MIT",
   "homepage": "https://github.com/memcoai/eve-memco#readme",

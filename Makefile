@@ -15,6 +15,9 @@ help:  ## Show this help
 install:  ## Install the development toolchain from the lockfile
 	$(NPM) ci
 
+update:  ## Update toolchains
+	$(NPM) update
+
 lint:  ## Check formatting and the GitHub workflows
 	$(RUN) lint
 

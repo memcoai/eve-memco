@@ -38,8 +38,8 @@
   ],
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "prettier --check . && node-actionlint '.github/workflows/*.yaml'",
-    "format": "prettier --write .",
+    "lint": "git ls-files -z --cached --others --exclude-standard | xargs -0 prettier --ignore-unknown --check && node-actionlint '.github/workflows/*.yaml'",
+    "format": "git ls-files -z --cached --others --exclude-standard | xargs -0 prettier --ignore-unknown --write",
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "build:test": "rm -rf build && tsc -p tsconfig.json",
     "test": "npm run build:test && node --test --enable-source-maps 'build/tests/**/*.test.js'"

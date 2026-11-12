@@ -484,15 +484,22 @@ export function createProvider(dependencies: ProviderDependencies) {
         )
         const offered = session.tools({ prefix }).tools
         return Object.fromEntries(
-          offered.map(tool => [
-            tool.name.slice(prefix.length),
-            defineTool({
-              description: tool.description,
-              // Plain JSON Schema, which the SDK's narrower type does not prove.
-              inputSchema: tool.parameters as unknown as JsonObject,
-              execute: input => tool.call(input)
-            })
-          ])
+          offered.map(tool => {
+            const operation = tool.name.slice(prefix.length)
+            const label = LABELS[operation]
+            return [
+              operation,
+              defineTool({
+                description: tool.description,
+                // Plain JSON Schema, which the SDK's narrower type does not prove.
+                inputSchema: tool.parameters as unknown as JsonObject,
+                ...(label === undefined
+                  ? {}
+                  : { label: { start: () => label } }),
+                execute: input => tool.call(input)
+              })
+            ]
+          })
         )
       } catch (error) {
         if (outage(error, 'tools')) return null
@@ -507,6 +514,21 @@ export function createProvider(dependencies: ProviderDependencies) {
       }
     }
   } satisfies MemoryProvider
+}
+
+/**
+ * What a channel shows while each operation runs, by the SDK's name for it.
+ * Fixed text, never the input: a query or a memory may hold what a channel's
+ * other readers should not see. An operation not named here, such as one a
+ * later SDK adds, is shown under eve's own reading of its tool name.
+ */
+const LABELS: Readonly<Record<string, string>> = {
+  search: 'Search shared memory',
+  get_memory: 'Read a shared memory',
+  create_memory: 'Save to shared memory',
+  enrich_memory: 'Add to a shared memory',
+  share_feedback: 'Rate shared memory results',
+  revert_memory: 'Revert a shared memory'
 }
 
 /**

@@ -72,6 +72,19 @@ const NAMESPACE = 'acme-support-agent'
 const PORT = 2000
 const BASE_URL = `http://127.0.0.1:${PORT}`
 
+// The driver's own env file, read if it exists. Its values win over the
+// shell's, which may hold credentials of some other organisation. `eve dev`
+// does not read a file of this name, so the server gets only what a mode
+// hands it.
+const VALIDATE_ENV_FILE = '.env.validate'
+if (existsSync(VALIDATE_ENV_FILE)) {
+  const loaded = parseEnv(readFileSync(VALIDATE_ENV_FILE, 'utf8'))
+  Object.assign(process.env, loaded)
+  console.log(
+    `${VALIDATE_ENV_FILE}: ${Object.keys(loaded).join(', ') || 'no variables'}`
+  )
+}
+
 const TURN_MS = seconds('VALIDATE_TURN_SECONDS', 180)
 const INGEST_MS = seconds('VALIDATE_INGEST_SECONDS', 120)
 const BOOT_MS = 120_000

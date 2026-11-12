@@ -394,6 +394,18 @@ test('tools are offered under bare keys, describing the slot-qualified names', a
   assert.equal(ran, 'search ran as token: {"query":"x"}')
 })
 
+test('each tool says what it is doing in plain words, without its input', async () => {
+  const { recall, tools } = setup('token')
+  await recall()
+  const offered = await tools()
+  const label = (key: string) => {
+    const given = offered?.[key]?.label
+    return given ? given.start({ query: 'a secret' }) : given
+  }
+  assert.equal(label('search'), 'Search shared memory')
+  assert.equal(label('create_memory'), 'Save to shared memory')
+})
+
 test('every tool is built with defineTool, as eve requires of a provider', async () => {
   const { recall, tools } = setup('token')
   await recall()

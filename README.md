@@ -19,8 +19,9 @@ conversation transcripts.
 
 ## Requirements and installation
 
-You need Node.js 24 or later, an existing eve app using `eve >=0.84.1 <1`, and a memco account. If
-you are starting a new app, follow [eve's first-agent tutorial](https://eve.dev/docs/tutorial/first-agent).
+You need Node.js 24 or later, an existing eve app using eve 1.x (`eve >=1.0.0-rc.10 <2`), and a memco
+account. An app still on eve 0.x uses `@memco/eve@0.1`. If you are starting a new app, follow
+[eve's getting-started guide](https://eve.dev/docs/getting-started).
 
 Install the provider in your eve app:
 
@@ -253,6 +254,9 @@ make examples                  # after any change to src/
 make validate MODE=single
 make validate MODE=multi
 ```
+
+Instead of exporting them, the same variables can go in an uncommitted `.env.validate` in the
+repository root, whose values win over the shell's.
 
 `VALIDATE_TURN_SECONDS` sets how long a turn may take, `VALIDATE_SAMPLES=0` skips the scenarios that
 only report rates, and `VALIDATE_KEEP=1` keeps a run's tenants or memories, to look at them in the

@@ -4,6 +4,6 @@
   "type": "module",
   "dependencies": {
     "@memco/eve": "file:../..",
-    "eve": "0.90.0"
+    "eve": "1.0.0-rc.10"
   }
 }

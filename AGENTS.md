@@ -14,7 +14,7 @@ onto them. The design is `plans/eve-memory-provider.md` in the SDK repository.
   Tests run on `node:test` with a hand-built eve context and a fake Memco client at the SDK
   boundary; no test dependencies beyond eve itself.
 - **Use the Makefile.** `make check` is what CI runs.
-- **Keep testing against current eve.** The peer range stays open below 1, so a new eve reaches
+- **Keep testing against current eve.** The peer range stays open below 2, so a new eve reaches
   users without a release of this package. `make validate` is what catches a breaking eve: keep the
   dev and example versions on the current eve, and when one breaks us, fix it and release.
 - **Never derive identity from the model.** Tenant and user come from `ctx.session.auth.current`;

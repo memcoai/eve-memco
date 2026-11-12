@@ -62,8 +62,14 @@ export class FakeSession implements MemcoSession {
       name: `${prefix}${op}`,
       description: `${op}, see ${prefix}search`,
       parameters: { type: 'object', properties: {}, required: [] },
+      // A call sending `bad` is one the model got wrong, as the SDK reports it.
       call: async args =>
-        `${op} ran as ${this.externalId ?? 'token'}: ${JSON.stringify(args)}`
+        args['bad'] === true
+          ? { content: `invalid request: ${op}`, isError: true }
+          : {
+              content: `${op} ran as ${this.externalId ?? 'token'}: ${JSON.stringify(args)}`,
+              isError: false
+            }
     })
     return new Toolset([tool('search'), tool('create_memory')])
   }

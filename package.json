@@ -55,6 +55,6 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@memco/memcoai": "^0.3.1"
+    "@memco/memcoai": "^0.4.0"
   }
 }

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 import type { SessionAuthContext } from 'eve/context'
@@ -13,6 +14,7 @@ import { TENANT_SCOPE } from '../src/scope.js'
 import { MemcoConfigError } from '@memco/memcoai'
 
 import {
+  announced,
   createProvider,
   memco,
   type SessionState,
@@ -391,7 +393,39 @@ test('tools are offered under bare keys, describing the slot-qualified names', a
     { query: 'x' } as never,
     {} as never
   )
-  assert.equal(ran, 'search ran as token: {"query":"x"}')
+  assert.deepEqual(ran, {
+    content: 'search ran as token: {"query":"x"}',
+    isError: false
+  })
+})
+
+test('the model reads a result as text, and a failure it caused as an error', async () => {
+  const { recall, tools } = setup('token')
+  await recall()
+  const search = (await tools())?.['search']
+  const shown = async (input: Record<string, unknown>) =>
+    search?.toModelOutput?.(
+      (await search.execute(input as never, {} as never)) as never
+    )
+  assert.deepEqual(await shown({ query: 'x' }), {
+    type: 'text',
+    value: 'search ran as token: {"query":"x"}'
+  })
+  assert.deepEqual(await shown({ bad: true }), {
+    type: 'error-text',
+    value: 'invalid request: search'
+  })
+})
+
+test('the client announces this package and its version, whatever the caller passes', () => {
+  const { version } = JSON.parse(readFileSync('package.json', 'utf8')) as {
+    version: string
+  }
+  const forged = { integration: { name: 'other', version: '9' } }
+  assert.deepEqual(announced({ host: 'h', ...forged } as never), {
+    host: 'h',
+    integration: { name: 'memco-eve', version }
+  })
 })
 
 test('each tool says what it is doing in plain words, without its input', async () => {

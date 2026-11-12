@@ -11,7 +11,8 @@ import {
   type CreateUserOptions,
   type MemcoOptions,
   type Session,
-  type SessionOptions
+  type SessionOptions,
+  type ToolResult
 } from '@memco/memcoai'
 import type { SessionAuth, SessionAuthContext } from 'eve/context'
 import { defineState } from 'eve/context'
@@ -23,10 +24,11 @@ import {
   type MemoryToolSet
 } from 'eve/memory'
 import type { JsonObject } from 'eve/events'
-import { defineTool } from 'eve/tools'
+import { defineTool, toolOutput } from 'eve/tools'
 
 import { externalId, networkName } from './derive.js'
 import { TENANT_SCOPE } from './scope.js'
+import { VERSION } from './version.js'
 
 /** Names a user for people reading Memco, or `null` for none. */
 export type UserNameResolver = (
@@ -34,7 +36,10 @@ export type UserNameResolver = (
 ) => string | null | undefined | Promise<string | null | undefined>
 
 /** What the provider sets beyond the Memco client's own options. */
-export interface MemcoProviderOptions extends MemcoOptions {
+export interface MemcoProviderOptions extends Omit<
+  MemcoOptions,
+  'integration'
+> {
   /** The Memco memory domain the slot reads and writes. Defaults to `knowledge`. */
   domain?: string
   /**
@@ -157,6 +162,15 @@ export const BRIEFING_ID = 'memco-briefing'
 const sessions = defineState<StoredSessions>('memco.sessions', () => ({}))
 
 /**
+ * The Memco client's options with this package named as the integration, so
+ * Memco can tell an eve agent's traffic apart. Whatever the caller passed
+ * under that name is replaced.
+ */
+export function announced(options: MemcoOptions): MemcoOptions {
+  return { ...options, integration: { name: 'memco-eve', version: VERSION } }
+}
+
+/**
  * Memco Shared Memory as an eve memory provider.
  *
  * The credential decides the mode. A token is single-user: every caller shares
@@ -202,7 +216,7 @@ export function memco(options: MemcoProviderOptions = {}): MemoryProvider {
     createProvider({
       // Created on first use, so the environment is read when the agent runs
       // rather than when the slot's module loads.
-      client: () => (client ??= new Memco(clientOptions)),
+      client: () => (client ??= new Memco(announced(clientOptions))),
       state: sessions,
       domain,
       keyTtlMinutes,
@@ -496,7 +510,13 @@ export function createProvider(dependencies: ProviderDependencies) {
                 ...(label === undefined
                   ? {}
                   : { label: { start: () => label } }),
-                execute: input => tool.call(input)
+                execute: input => tool.call(input),
+                // A failure the model caused is marked as one for it, while
+                // the call itself completes.
+                toModelOutput: ({ content, isError }: ToolResult) =>
+                  isError
+                    ? toolOutput.errorText(content)
+                    : toolOutput.text(content)
               })
             ]
           })
